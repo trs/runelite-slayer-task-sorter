@@ -8,11 +8,16 @@ import java.util.List;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
-import net.runelite.api.ScriptEvent;
+import net.runelite.api.FontID;
 import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.gameval.SpriteID;
 import net.runelite.api.widgets.JavaScriptCallback;
 import net.runelite.api.widgets.Widget;
+import net.runelite.api.widgets.WidgetPositionMode;
+import net.runelite.api.widgets.WidgetTextAlignment;
+import net.runelite.api.widgets.WidgetSizeMode;
+import net.runelite.api.widgets.WidgetType;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
@@ -74,7 +79,7 @@ public class SlayerTaskSorterPlugin extends Plugin
 		switch (e.getKey())
 		{
 			case SlayerTaskSorterConfig.KEY_ACTIVE_SORT_METHOD:
-				reorderSortButton(config.sortingMethod());
+				sortLater();
 				break;
 			case SlayerTaskSorterConfig.KEY_REVERSE_SORT:
 				sortLater();
@@ -118,7 +123,62 @@ public class SlayerTaskSorterPlugin extends Plugin
 			}
 
 			sort();
+
+			drawHeader();
 		});
+	}
+
+	private Widget buildSortButton(Widget parent, String title, int width, SortMethod method) {
+		Widget sortButtonContainer = parent.createChild(-1, WidgetType.LAYER);
+		sortButtonContainer.setXPositionMode(WidgetPositionMode.ABSOLUTE_LEFT);
+		sortButtonContainer.setYPositionMode(WidgetPositionMode.ABSOLUTE_LEFT);
+		sortButtonContainer.setWidthMode(WidgetSizeMode.ABSOLUTE);
+		sortButtonContainer.setHeightMode(WidgetSizeMode.ABSOLUTE);
+		sortButtonContainer.setOriginalWidth(width);
+		sortButtonContainer.setOriginalHeight(24);
+		sortButtonContainer.setHasListener(true);
+		sortButtonContainer.setAction(0, method.name);
+		sortButtonContainer.setOnOpListener((JavaScriptCallback)((e) -> handleSortButtonOp(method)));
+		sortButtonContainer.revalidate();
+
+		Widget sortButtonText = sortButtonContainer.createChild(-1, WidgetType.TEXT);
+		sortButtonText.setText(title);
+		sortButtonText.setTextColor(0xff981f);
+		sortButtonText.setFontId(FontID.BOLD_12);
+		sortButtonText.setTextShadowed(true);
+		sortButtonText.setXTextAlignment(WidgetTextAlignment.LEFT);
+		sortButtonText.setYTextAlignment(WidgetTextAlignment.CENTER);
+		sortButtonText.setXPositionMode(WidgetPositionMode.ABSOLUTE_LEFT);
+		sortButtonText.setYPositionMode(WidgetPositionMode.ABSOLUTE_CENTER);
+		sortButtonText.setOriginalX(4);
+		sortButtonText.setWidthMode(WidgetSizeMode.ABSOLUTE);
+		sortButtonText.setHeightMode(WidgetSizeMode.MINUS);
+		sortButtonText.setOriginalWidth(width - 12);
+		sortButtonText.revalidate();
+
+		Widget sortButtonIcon = sortButtonContainer.createChild(-1, WidgetType.GRAPHIC);
+		if (config.sortingMethod() == method) {
+			sortButtonIcon.setHidden(false);
+			if (config.reverseSort()) {
+				sortButtonIcon.setSpriteId(SpriteID.Sortarrows.ASCENDING);
+			} else {
+				sortButtonIcon.setSpriteId(SpriteID.Sortarrows.DESCENDING);
+			}
+		} else {
+			sortButtonIcon.setHidden(true);
+		}
+		sortButtonIcon.setXTextAlignment(WidgetTextAlignment.CENTER);
+		sortButtonIcon.setYTextAlignment(WidgetTextAlignment.CENTER);
+		sortButtonIcon.setOriginalWidth(7);
+		sortButtonIcon.setOriginalHeight(5);
+		sortButtonIcon.setXPositionMode(WidgetPositionMode.ABSOLUTE_RIGHT);
+		sortButtonIcon.setYPositionMode(WidgetPositionMode.ABSOLUTE_CENTER);
+		sortButtonIcon.setOriginalX(10);
+		sortButtonIcon.setWidthMode(WidgetSizeMode.ABSOLUTE);
+		sortButtonIcon.setHeightMode(WidgetSizeMode.ABSOLUTE);
+		sortButtonIcon.revalidate();
+
+		return sortButtonContainer;
 	}
 
 	private void initWidgets() {
@@ -136,11 +196,41 @@ public class SlayerTaskSorterPlugin extends Plugin
 				return;
 			}
 
-			taskListTitle.setOnOpListener((JavaScriptCallback) this::handleSortButtonOp);
-			taskListTitle.setHasListener(true);
-			reorderSortButton(config.sortingMethod());
+			taskListTitle.setHidden(true);
 			taskListTitle.revalidate();
+
+			drawHeader();
 		});
+	}
+
+	private void drawHeader() {
+		var taskListWorld = client.getWidget(InterfaceID.SlayerRewardsTaskList.WORLD);
+		if (taskListWorld == null) {
+			return;
+		}
+
+		taskListWorld.deleteAllChildren();
+
+		Widget taskHeaderContainer = taskListWorld.createChild(-1, WidgetType.LAYER);
+		taskHeaderContainer.setXPositionMode(WidgetPositionMode.ABSOLUTE_LEFT);
+		taskHeaderContainer.setYPositionMode(WidgetPositionMode.ABSOLUTE_LEFT);
+		taskHeaderContainer.setWidthMode(WidgetSizeMode.MINUS);
+		taskHeaderContainer.setHeightMode(WidgetSizeMode.ABSOLUTE);
+		taskHeaderContainer.setOriginalX(6);
+		taskHeaderContainer.setOriginalY(6);
+		taskHeaderContainer.setOriginalWidth(12);
+		taskHeaderContainer.setOriginalHeight(24);
+		taskHeaderContainer.setHasListener(true);
+		taskHeaderContainer.revalidate();
+
+		var nameSortButton = buildSortButton(taskHeaderContainer, "Slayer Task", 106, SortMethod.SORT_BY_NAME);
+		nameSortButton.setXPositionMode(WidgetPositionMode.ABSOLUTE_LEFT);
+		nameSortButton.revalidate();
+
+		var weightSortButton = buildSortButton(taskHeaderContainer, "Weight", 74, SortMethod.SORT_BY_WEIGHTING);
+		weightSortButton.setXPositionMode(WidgetPositionMode.ABSOLUTE_RIGHT);
+		weightSortButton.setOriginalX(6);
+		weightSortButton.revalidate();
 	}
 
 	private Widget getClickableWidgetFromName(Widget[] clickableWidgets, String name) {
@@ -187,32 +277,13 @@ public class SlayerTaskSorterPlugin extends Plugin
 		}
 	}
 
-	private void handleSortButtonOp(ScriptEvent event) {
-		// Special case for first index - reverse sort order
-		if (event.getOp() == 1) {
+	private void handleSortButtonOp(SortMethod method) {
+		if (config.sortingMethod() == method) {
 			config.setReverseOrder(!config.reverseSort());
-			sortLater();
-			return;
+		} else {
+			config.setReverseOrder(false);
 		}
-		for (SortMethod method : SortMethod.values()) {
-			if (method.actionIndex == event.getOp()) {
-				config.setSortingMethod(method);
-				reorderSortButton(method);
-				return;
-			}
-		}
-	}
-
-	private void reorderSortButton(SortMethod firstMethod) {
-		int index = 0;
-		taskListTitle.setAction(index, "Reverse sort order");
-		firstMethod.actionIndex = 1;
-		for (SortMethod method : SortMethod.values()) {
-			if (method != firstMethod) {
-				taskListTitle.setAction(++index, method.name);
-				method.actionIndex = index + 1;
-			}
-		}
+		config.setSortingMethod(method);
 		sortLater();
 	}
 }
